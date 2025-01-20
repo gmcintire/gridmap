@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>GridMap</title>
+        <link rel="stylesheet" href="leaflet.css" />
+        <script src="leaflet.js"></script>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            #map {
+                height: 100vh;
+                width: 100%;
+            }
+            .grid-label {
+                font-size: 12px;
+                color: black;
+                background-color: rgba(255, 255, 255, 0.7);
+                padding: 2px;
+                border-radius: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+
+        <script>
+            // Initialize the map
+            const map = L.map("map").setView([0, 0], 2);
+
+            // Add OpenStreetMap tile layer
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution:
+                    'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+            }).addTo(map);
+
+            // Maidenhead grid square calculation function (accurate implementation)
+            function latLngToMaidenhead(lat, lng) {
+                const A = "A".charCodeAt(0);
+                lng += 180;
+                lat += 90;
+
+                const fieldLng = Math.floor(lng / 20);
+                const fieldLat = Math.floor(lat / 10);
+
+                const squareLng = Math.floor((lng % 20) / 2);
+                const squareLat = Math.floor((lat % 10) / 1);
+
+                const subLng = Math.floor(((lng % 2) * 60) / 5);
+                const subLat = Math.floor(((lat % 1) * 60) / 2.5);
+
+                const field = String.fromCharCode(A + fieldLng) + String.fromCharCode(A + fieldLat);
+                const square = squareLng.toString() + squareLat.toString();
+                const subsquare = String.fromCharCode(A + subLng) + String.fromCharCode(A + subLat);
+
+                return field + square + subsquare;
+            }
+
+            // Function to draw Maidenhead grid squares
+            function drawMaidenheadGrids() {
+                const bounds = map.getBounds();
+                const overlays = [];
+
+                const gridSize = 1 / 24; // Grid size for sub-square (2.5 minutes in latitude)
+
+                for (
+                    let lat = Math.floor(bounds.getSouth() / gridSize) * gridSize;
+                    lat < Math.ceil(bounds.getNorth() / gridSize) * gridSize;
+                    lat += gridSize
+                ) {
+                    for (
+                        let lng = Math.floor(bounds.getWest() / gridSize) * gridSize;
+                        lng < Math.ceil(bounds.getEast() / gridSize) * gridSize;
+                        lng += gridSize
+                    ) {
+                        const southWest = [lat, lng];
+                        const northEast = [lat + gridSize, lng + gridSize];
+                        const gridSquare = L.rectangle([southWest, northEast], {
+                            color: "blue",
+                            weight: 1,
+                            fill: false, // Only show outlines, no fill color
+                        }).addTo(map);
+
+                        const maidenhead = latLngToMaidenhead(
+                            lat + gridSize / 2,
+                            lng + gridSize / 2,
+                        );
+                        const center = [(lat + lat + gridSize) / 2, (lng + lng + gridSize) / 2];
+
+                        L.marker(center, {
+                            icon: L.divIcon({
+                                className: "grid-label",
+                                html: maidenhead,
+                                iconSize: null,
+                            }),
+                        }).addTo(map);
+
+                        overlays.push(gridSquare);
+                    }
+                }
+            }
+
+            // Update gridsquares on map move or zoom
+            map.on("moveend", drawMaidenheadGrids);
+
+            // Get the user's current location
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLng = position.coords.longitude;
+
+                        // Set map view to user's location
+                        map.setView([userLat, userLng], 10);
+
+                        // Calculate and display correct Maidenhead grid square
+                        const maidenhead = latLngToMaidenhead(userLat, userLng);
+
+                        // Add a marker for the user's location
+                        L.marker([userLat, userLng])
+                            .addTo(map)
+                            .bindPopup(`You are here! Grid Square: ${maidenhead}`)
+                            .openPopup();
+                    },
+                    (error) => {
+                        console.error("Geolocation error:", error);
+                    },
+                );
+            } else {
+                alert("Geolocation is not supported by your browser.");
+            }
+
+            // Initial draw
+            drawMaidenheadGrids();
+        </script>
+    </body>
+</html>
