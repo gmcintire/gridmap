@@ -1,141 +1,352 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>GridMap</title>
-        <link rel="stylesheet" href="leaflet.css" />
-        <script src="leaflet.js"></script>
-        <style>
-            body {
-                margin: 0;
-                padding: 0;
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Location Map with Maidenhead Grid</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            width: 100vw;
+            height: calc(100vh - 40px);
+            margin-top: 40px;
+        }
+        #grid-display {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: white;
+            border-bottom: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-family: monospace;
+            z-index: 1000;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .grid-label {
+            background: none;
+            border: none;
+            box-shadow: none;
+            font-weight: bold;
+            color: #444;
+            text-shadow: -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff, 2px 2px 0 #fff;
+            font-size: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .subgrid-label {
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="grid-display">Current Grid: --</div>
+    <div id="map"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([0, 0], 2);
+        let userMarker = null;
+        let gridSquares = L.layerGroup();
+        let locationWatcher = null;
+        let currentUserPosition = null;
+
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Add grid squares layer
+        gridSquares.addTo(map);
+
+        // Function to calculate Maidenhead grid square
+        function calculateGridSquare(lat, lon, includeSubsquare = false) {
+            const UPPERCASE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWX';
+            const LOWERCASE_LETTERS = 'abcdefghijklmnopqrstuvwx';
+
+            // Normalize longitude to [-180,180]
+            lon = lon + 180;
+            lat = lat + 90;
+
+            // Field (first pair)
+            const field1 = UPPERCASE_LETTERS.charAt(Math.floor(lon / 20));
+            const field2 = UPPERCASE_LETTERS.charAt(Math.floor(lat / 10));
+
+            // Square (second pair)
+            const square1 = Math.floor((lon % 20) / 2);
+            const square2 = Math.floor(lat % 10);
+
+            if (!includeSubsquare) {
+                return `${field1}${field2}${square1}${square2}`;
             }
-            #map {
-                height: 100vh;
-                width: 100%;
-            }
-            .grid-label {
-                font-size: 12px;
-                color: black;
-                background-color: rgba(255, 255, 255, 0.7);
-                padding: 2px;
-                border-radius: 3px;
-            }
-        </style>
-    </head>
-    <body>
-        <div id="map"></div>
 
-        <script>
-            // Initialize the map
-            const map = L.map("map").setView([0, 0], 2);
+            // Subsquare (third pair)
+            const subsquareLon = (lon % 2) * 12;
+            const subsquareLat = (lat % 1) * 24;
+            const subsquare1 = LOWERCASE_LETTERS.charAt(Math.floor(subsquareLon));
+            const subsquare2 = LOWERCASE_LETTERS.charAt(Math.floor(subsquareLat));
 
-            // Add OpenStreetMap tile layer
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                maxZoom: 19,
-                attribution:
-                    'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
-            }).addTo(map);
+            return `${field1}${field2}${square1}${square2}${subsquare1}${subsquare2}`;
+        }
 
-            // Maidenhead grid square calculation function (accurate implementation)
-            function latLngToMaidenhead(lat, lng) {
-                const A = "A".charCodeAt(0);
-                lng += 180;
-                lat += 90;
+        // Function to get grid square bounds
+        function getGridSquareBounds(gridSquare) {
+            const UPPERCASE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWX';
+            const LOWERCASE_LETTERS = 'abcdefghijklmnopqrstuvwx';
+            
+            const field1 = UPPERCASE_LETTERS.indexOf(gridSquare.charAt(0));
+            const field2 = UPPERCASE_LETTERS.indexOf(gridSquare.charAt(1));
+            const square1 = parseInt(gridSquare.charAt(2));
+            const square2 = parseInt(gridSquare.charAt(3));
 
-                const fieldLng = Math.floor(lng / 20);
-                const fieldLat = Math.floor(lat / 10);
+            let lonMin = (field1 * 20 - 180) + (square1 * 2);
+            let lonMax = (field1 * 20 - 180) + ((square1 + 1) * 2);
+            let latMin = (field2 * 10 - 90) + square2;
+            let latMax = (field2 * 10 - 90) + (square2 + 1);
 
-                const squareLng = Math.floor((lng % 20) / 2);
-                const squareLat = Math.floor((lat % 10) / 1);
-
-                const subLng = Math.floor(((lng % 2) * 60) / 5);
-                const subLat = Math.floor(((lat % 1) * 60) / 2.5);
-
-                const field = String.fromCharCode(A + fieldLng) + String.fromCharCode(A + fieldLat);
-                const square = squareLng.toString() + squareLat.toString();
-                const subsquare = String.fromCharCode(A + subLng) + String.fromCharCode(A + subLat);
-
-                return field + square + subsquare;
+            // If subsquare is provided, calculate more precise bounds
+            if (gridSquare.length >= 6) {
+                const subsquare1 = LOWERCASE_LETTERS.indexOf(gridSquare.charAt(4));
+                const subsquare2 = LOWERCASE_LETTERS.indexOf(gridSquare.charAt(5));
+                
+                const lonDelta = (lonMax - lonMin) / 12;
+                const latDelta = (latMax - latMin) / 24;
+                
+                lonMin = lonMin + (subsquare1 * lonDelta);
+                lonMax = lonMin + lonDelta;
+                latMin = latMin + (subsquare2 * latDelta);
+                latMax = latMin + latDelta;
             }
 
-            // Function to draw Maidenhead grid squares
-            function drawMaidenheadGrids() {
-                const bounds = map.getBounds();
-                const overlays = [];
+            return {
+                north: latMax,
+                south: latMin,
+                east: lonMax,
+                west: lonMin
+            };
+        }
 
-                const gridSize = 1 / 24; // Grid size for sub-square (2.5 minutes in latitude)
+        // Debounce function
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
 
-                for (
-                    let lat = Math.floor(bounds.getSouth() / gridSize) * gridSize;
-                    lat < Math.ceil(bounds.getNorth() / gridSize) * gridSize;
-                    lat += gridSize
-                ) {
-                    for (
-                        let lng = Math.floor(bounds.getWest() / gridSize) * gridSize;
-                        lng < Math.ceil(bounds.getEast() / gridSize) * gridSize;
-                        lng += gridSize
-                    ) {
-                        const southWest = [lat, lng];
-                        const northEast = [lat + gridSize, lng + gridSize];
-                        const gridSquare = L.rectangle([southWest, northEast], {
-                            color: "blue",
-                            weight: 1,
-                            fill: false, // Only show outlines, no fill color
-                        }).addTo(map);
+        // Function to update grid squares
+        function updateGridSquares() {
+            const bounds = map.getBounds();
+            const zoom = map.getZoom();
+            
+            console.log(`Current zoom level: ${zoom}`);
+            console.log(`Should show subsquares: ${zoom >= 12}`);
+            
+            // Clear existing grid squares
+            gridSquares.clearLayers();
 
-                        const maidenhead = latLngToMaidenhead(
-                            lat + gridSize / 2,
-                            lng + gridSize / 2,
-                        );
-                        const center = [(lat + lat + gridSize) / 2, (lng + lng + gridSize) / 2];
+            // Only show grid squares at appropriate zoom levels
+            if (zoom < 5) return;
 
-                        L.marker(center, {
-                            icon: L.divIcon({
-                                className: "grid-label",
-                                html: maidenhead,
-                                iconSize: null,
-                            }),
-                        }).addTo(map);
+            const showSubsquares = zoom >= 12;
 
-                        overlays.push(gridSquare);
+            if (!showSubsquares) {
+                // Show main grid squares
+                const latMin = Math.floor((bounds.getSouth() + 90) / 10) * 10 - 90;
+                const latMax = Math.ceil((bounds.getNorth() + 90) / 10) * 10 - 90;
+                const lonMin = Math.floor((bounds.getWest() + 180) / 20) * 20 - 180;
+                const lonMax = Math.ceil((bounds.getEast() + 180) / 20) * 20 - 180;
+
+                for (let lat = latMin; lat < latMax; lat += 10) {
+                    for (let lon = lonMin; lon < lonMax; lon += 20) {
+                        for (let subLat = 0; subLat < 10; subLat++) {
+                            for (let subLon = 0; subLon < 10; subLon++) {
+                                const currentLat = lat + subLat;
+                                const currentLon = lon + (subLon * 2);
+                                const gridSquare = calculateGridSquare(currentLat, currentLon, false);
+                                const bounds = getGridSquareBounds(gridSquare);
+
+                                const rectangle = L.rectangle([
+                                    [bounds.south, bounds.west],
+                                    [bounds.north, bounds.east]
+                                ], {
+                                    color: "#444",
+                                    weight: 1,
+                                    fillOpacity: 0,
+                                    interactive: false
+                                });
+
+                                const center = [
+                                    (bounds.north + bounds.south) / 2,
+                                    (bounds.east + bounds.west) / 2
+                                ];
+
+                                const label = L.marker(center, {
+                                    icon: L.divIcon({
+                                        className: 'grid-label',
+                                        html: gridSquare,
+                                        iconSize: [200, 60],
+                                        iconAnchor: [100, 30]
+                                    }),
+                                    interactive: false
+                                });
+
+                                gridSquares.addLayer(rectangle);
+                                gridSquares.addLayer(label);
+                            }
+                        }
+                    }
+                }
+            } else {
+                console.log("Showing subsquares");
+                // Show subsquares
+                const latMin = bounds.getSouth();
+                const latMax = bounds.getNorth();
+                const lonMin = bounds.getWest();
+                const lonMax = bounds.getEast();
+
+                console.log(`Processing area: ${latMin},${lonMin} to ${latMax},${lonMax}`);
+
+                // Calculate step sizes for subsquares
+                const latStep = 1/24;  // 24 subsquares per degree latitude
+                const lonStep = 1/6;   // 12 subsquares per 2 degrees longitude (matches grid square size)
+
+                for (let lat = Math.floor(latMin); lat <= Math.ceil(latMax); lat++) {
+                    for (let lon = Math.floor(lonMin); lon <= Math.ceil(lonMax); lon += 0.5) {  // Step by 0.5 to match grid square size
+                        for (let subLat = 0; subLat < 24; subLat++) {
+                            for (let subLon = 0; subLon < 6; subLon++) {  // 6 subsquares per grid square width
+                                const currentLat = lat + (subLat * latStep);
+                                const currentLon = lon + (subLon * lonStep);
+                                
+                                if (currentLat >= latMin && currentLat <= latMax &&
+                                    currentLon >= lonMin && currentLon <= lonMax) {
+                                    
+                                    const fullGridSquare = calculateGridSquare(currentLat, currentLon, true);
+                                    const bounds = getGridSquareBounds(fullGridSquare);
+
+                                    const rectangle = L.rectangle([
+                                        [bounds.south, bounds.west],
+                                        [bounds.north, bounds.east]
+                                    ], {
+                                        color: "#000",
+                                        weight: 1,
+                                        fillOpacity: 0,
+                                        interactive: false
+                                    });
+
+                                    const center = [
+                                        (bounds.north + bounds.south) / 2,
+                                        (bounds.east + bounds.west) / 2
+                                    ];
+
+                                    const pixelBounds = map.latLngToContainerPoint([bounds.north, bounds.east]);
+                                    const pixelBounds2 = map.latLngToContainerPoint([bounds.south, bounds.west]);
+                                    const width = Math.abs(pixelBounds.x - pixelBounds2.x);
+
+                                    gridSquares.addLayer(rectangle);
+
+                                    if (width > 30) {
+                                        const label = L.marker(center, {
+                                            icon: L.divIcon({
+                                                className: 'grid-label subgrid-label',
+                                                html: fullGridSquare,
+                                                iconSize: [100, 30],
+                                                iconAnchor: [50, 15]
+                                            }),
+                                            interactive: false
+                                        });
+                                        gridSquares.addLayer(label);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
 
-            // Update gridsquares on map move or zoom
-            map.on("moveend", drawMaidenheadGrids);
-
-            // Get the user's current location
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        const userLat = position.coords.latitude;
-                        const userLng = position.coords.longitude;
-
-                        // Set map view to user's location
-                        map.setView([userLat, userLng], 10);
-
-                        // Calculate and display correct Maidenhead grid square
-                        const maidenhead = latLngToMaidenhead(userLat, userLng);
-
-                        // Add a marker for the user's location
-                        L.marker([userLat, userLng])
-                            .addTo(map)
-                            .bindPopup(`You are here! Grid Square: ${maidenhead}`)
-                            .openPopup();
-                    },
-                    (error) => {
-                        console.error("Geolocation error:", error);
-                    },
-                );
-            } else {
-                alert("Geolocation is not supported by your browser.");
+        // Function to handle location updates
+        function onLocationUpdate(e) {
+            const latlng = e.latlng || { lat: e.latitude, lng: e.longitude };
+            currentUserPosition = [latlng.lat, latlng.lng];
+            
+            // Remove previous location marker if it exists
+            if (userMarker) {
+                map.removeLayer(userMarker);
             }
 
-            // Initial draw
-            drawMaidenheadGrids();
-        </script>
-    </body>
+            // Add marker for user location (without popup)
+            userMarker = L.marker(latlng).addTo(map);
+
+            // Update grid display
+            const currentGrid = calculateGridSquare(latlng.lat, latlng.lng, true);
+            document.getElementById('grid-display').textContent = `Current Grid: ${currentGrid}`;
+
+            // Only set view on first location fix
+            if (!map.initialLocationSet) {
+                map.setView(latlng, 9);
+                map.initialLocationSet = true;
+            }
+
+            // Update grid squares to handle new marker position
+            updateGridSquares();
+        }
+
+        // Function to handle location errors
+        function onLocationError(e) {
+            alert(e.message);
+        }
+
+        // Function to start location tracking
+        function startLocationTracking() {
+            // Stop any existing location watch
+            if (locationWatcher) {
+                navigator.geolocation.clearWatch(locationWatcher);
+            }
+
+            // Start watching location with high accuracy
+            locationWatcher = navigator.geolocation.watchPosition(
+                position => {
+                    onLocationUpdate({
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    });
+                },
+                onLocationError,
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 5000
+                }
+            );
+        }
+
+        // Add event listeners with debounced updates
+        const debouncedUpdate = debounce(updateGridSquares, 100);
+        map.on('moveend', debouncedUpdate);
+        map.on('zoomend', debouncedUpdate);
+
+        // Start location tracking
+        startLocationTracking();
+    </script>
+</body>
 </html>
