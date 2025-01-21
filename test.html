@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Leaflet Map</title>
+        <!-- Leaflet CSS and JS -->
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+        <!-- Tailwind CSS -->
+        <link
+            href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+            rel="stylesheet"
+        />
+        <style>
+            #mapid {
+                height: 100vh;
+                width: 100%;
+                position: absolute;
+                top: 0;
+                left: 0;
+                z-index: 0;
+            }
+
+            .modal {
+                z-index: 50;
+            }
+
+            .links {
+                z-index: 60;
+            }
+        </style>
+    </head>
+    <body class="h-screen m-0 relative">
+        <!-- Full-screen Leaflet Map -->
+        <div id="mapid" class="w-full h-full"></div>
+
+        <!-- Privacy Modal -->
+        <div class="fixed inset-0 overflow-y-auto hidden modal" id="privacyModal">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="relative bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                    <button
+                        class="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+                        onclick="closeModal('privacy')"
+                    >
+                        &times;
+                    </button>
+                    <h3 class="text-xl font-semibold mb-4">Privacy Policy</h3>
+                    <p>
+                        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi nec neque nec
+                        nisl tincidunt faucibus vel in erat.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- About Modal -->
+        <div class="fixed inset-0 overflow-y-auto hidden modal" id="aboutModal">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="relative bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                    <button
+                        class="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+                        onclick="closeModal('about')"
+                    >
+                        &times;
+                    </button>
+                    <h3 class="text-xl font-semibold mb-4">About Us</h3>
+                    <p>
+                        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi nec neque nec
+                        nisl tincidunt faucibus vel in erat.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Links -->
+        <div class="fixed bottom-4 right-4 links">
+            <a
+                href="#"
+                onclick="openModal('privacy')"
+                class="bg-blue-500 text-white px-4 py-2 rounded mr-2"
+                >Privacy</a
+            >
+            <a
+                href="#"
+                onclick="openModal('about')"
+                class="bg-blue-500 text-white px-4 py-2 rounded"
+                >About</a
+            >
+        </div>
+
+        <!-- Initialize Leaflet Map -->
+        <script>
+            var map = L.map("mapid").setView([51.505, -0.09], 13);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "© OpenStreetMap contributors",
+            }).addTo(map);
+        </script>
+
+        <!-- Modal Functions -->
+        <script>
+            function openModal(modalId) {
+                document.getElementById(modalId + "Modal").classList.remove("hidden");
+            }
+
+            function closeModal(modalId) {
+                document.getElementById(modalId + "Modal").classList.add("hidden");
+            }
+        </script>
+    </body>
+</html>
