@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Map with Maidenhead Grid</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #grid-display {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="grid-display">Current Grid: --</div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map, marker, gridLayer;
+        const gridSquares = L.layerGroup();
+
+        // Calculate Maidenhead Grid Square from lat/lon
+        function calculateGridSquare(lat, lon, extended = false) {
+            // Normalize longitude to be between -180 and 180
+            lon = lon % 360;
+            if (lon > 180) lon -= 360;
+            else if (lon < -180) lon += 360;
+
+            // Adjust latitude and longitude to positive values for calculation
+            const adjLon = lon + 180;
+            const adjLat = lat + 90;
+
+            // Calculate field (first pair, base 18 A-R)
+            const field1 = String.fromCharCode(65 + Math.floor(adjLon / 20));
+            const field2 = String.fromCharCode(65 + Math.floor(adjLat / 10));
+
+            // Calculate square (second pair, base 10 0-9)
+            const square1 = Math.floor((adjLon % 20) / 2);
+            const square2 = Math.floor(adjLat % 10);
+
+            // Calculate subsquare (third pair, base 24 a-x)
+            const subsq1 = String.fromCharCode(97 + Math.floor((adjLon % 2) * 12));
+            const subsq2 = String.fromCharCode(97 + Math.floor((adjLat % 1) * 24));
+
+            // Calculate extended square (fourth pair, base 10 0-9)
+            if (extended) {
+                const ext1 = Math.floor((adjLon % (1 / 12)) * 240);
+                const ext2 = Math.floor((adjLat % (1 / 24)) * 240);
+                return `${field1}${field2}${square1}${square2}${subsq1}${subsq2}${ext1}${ext2}`;
+            }
+
+            return `${field1}${field2}${square1}${square2}${subsq1}${subsq2}`;
+        }
+
+        function gridToCoordinates(grid) {
+            // Convert grid reference to coordinates
+            const field1 = grid.charCodeAt(0) - 65;  // A=0, B=1, etc.
+            const field2 = grid.charCodeAt(1) - 65;
+            const square1 = parseInt(grid[2]);
+            const square2 = parseInt(grid[3]);
+
+            // Calculate boundaries
+            const westLon = (field1 * 20) - 180 + (square1 * 2);
+            const eastLon = westLon + 2;
+            const southLat = (field2 * 10) - 90 + square2;
+            const northLat = southLat + 1;
+
+            return {
+                west: westLon,
+                east: eastLon,
+                south: southLat,
+                north: northLat,
+                center: {
+                    lat: southLat + 0.5,
+                    lon: westLon + 1
+                }
+            };
+        }
+
+        function drawGridSquare(grid, detailed = false, bounds) {
+            if (grid.length < 4) return; // Need at least field and square
+
+            const coords = gridToCoordinates(grid);
+
+            // Only draw if the square intersects with the visible bounds
+            if (coords.west <= bounds.getEast() && coords.east >= bounds.getWest() &&
+                coords.south <= bounds.getNorth() && coords.north >= bounds.getSouth()) {
+
+                // Draw rectangle with black border and no fill
+                const rectangle = L.rectangle([
+                    [coords.south, coords.west],  // [lat, lon] for southwest corner
+                    [coords.north, coords.east]   // [lat, lon] for northeast corner
+                ], {
+                    color: "#000000",
+                    weight: 1,
+                    fillOpacity: 0,
+                    interactive: false
+                });
+
+                // Add centered label
+                const label = L.divIcon({
+                    className: 'grid-label',
+                    html: `<div style="padding: 4px 8px; font-size: 24px; font-weight: bold; color: black; text-shadow: 1px 1px 2px white;">${grid.substring(0, 4)}</div>`,
+                    iconSize: [100, 40],
+                    iconAnchor: [50, 20]
+                });
+
+                const marker = L.marker([coords.center.lat, coords.center.lon], {
+                    icon: label,
+                    interactive: false
+                });
+
+                gridSquares.addLayer(rectangle);
+                gridSquares.addLayer(marker);
+            }
+        }
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            gridSquares.addTo(map);
+
+            // Start watching location
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition(updateLocation, handleLocationError, {
+                    enableHighAccuracy: true,
+                    maximumAge: 30000,
+                    timeout: 27000
+                });
+            } else {
+                alert("Geolocation is not supported by this browser.");
+            }
+
+            // Update grid overlay when map moves
+            map.on('moveend', function () {
+                updateGridOverlay();
+            });
+        }
+
+        function updateLocation(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+
+            // Update marker
+            if (!marker) {
+                marker = L.marker([lat, lon]).addTo(map);
+            } else {
+                marker.setLatLng([lat, lon]);
+            }
+
+            // Center map on first location fix
+            if (map.getZoom() === 2) {
+                map.setView([lat, lon], 10);
+            }
+
+            // Update grid display
+            const gridSquare = calculateGridSquare(lat, lon, true);
+            document.getElementById('grid-display').textContent = `Current Grid: ${gridSquare}`;
+
+            // Update grid overlay
+            updateGridOverlay();
+        }
+
+        function handleLocationError(error) {
+            alert(`Error getting location: ${error.message}`);
+        }
+
+        function updateGridOverlay() {
+            gridSquares.clearLayers();
+            const bounds = map.getBounds();
+            const zoom = map.getZoom();
+
+            // Calculate the grid squares that cover the visible area
+            for (let lon = Math.floor((bounds.getWest() + 180) / 20) * 20 - 180; lon <= Math.ceil((bounds.getEast() + 180) / 20) * 20 - 180; lon += 2) {
+                for (let lat = Math.floor((bounds.getSouth() + 90) / 10) * 10 - 90; lat <= Math.ceil((bounds.getNorth() + 90) / 10) * 10 - 90; lat += 1) {
+                    const grid = calculateGridSquare(lat, lon);
+                    drawGridSquare(grid, zoom > 8, bounds);
+                }
+            }
+        }
+
+        // Initialize the map when the page loads
+        window.onload = initMap;
+    </script>
+</body>
+
+</html>
