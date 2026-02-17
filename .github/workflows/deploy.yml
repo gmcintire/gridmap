@@ -11,10 +11,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to skippy.w5isp.com
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: skippy.w5isp.com
-          username: graham
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "index.html,leaflet.js,leaflet.css,leaflet.js.map"
-          target: /home/graham/apps/gridmap.org
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H skippy.w5isp.com >> ~/.ssh/known_hosts
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='CLAUDE.md' \
+            ./ graham@skippy.w5isp.com:/home/graham/apps/gridmap.org/
