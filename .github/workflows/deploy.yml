@@ -16,7 +16,9 @@ jobs:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
       - name: Add host key
-        run: ssh-keyscan -H skippy.w5isp.com >> ~/.ssh/known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H skippy.w5isp.com >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Deploy to skippy.w5isp.com
         run: |
