@@ -348,7 +348,7 @@
             return GridSquare.decode(grid);
         }
 
-        function drawGridSquare(grid, detailed, bounds) {
+        function drawGridSquare(grid, precision, bounds) {
             if (grid.length < 4) return;
 
             const coords = gridToCoordinates(grid);
@@ -357,6 +357,9 @@
                 coords.south > bounds.getNorth() || coords.north < bounds.getSouth()) {
                 return;
             }
+
+            const detailed = precision >= 6;
+            const extended = precision >= 8;
 
             const rectangle = L.rectangle([
                 [coords.south, coords.west],
@@ -376,14 +379,20 @@
             const ne = map.latLngToContainerPoint([coords.north, coords.east]);
             const pixelWidth = Math.abs(ne.x - sw.x);
 
-            const minLabelWidth = detailed ? 50 : 60;
+            const minLabelWidth = detailed ? (extended ? 30 : 50) : 60;
             if (pixelWidth > minLabelWidth) {
-                const displayText = grid.substring(0, detailed ? 6 : 4);
+                const displayLength = extended ? 8 : (detailed ? 6 : 4);
+                const displayText = grid.substring(0, displayLength);
+                const fontSize = extended ? '10' : (detailed ? '14' : '22');
+                const iconWidth = extended ? 60 : (detailed ? 70 : 90);
+                const iconHeight = extended ? 18 : (detailed ? 24 : 32);
+                const iconAnchorX = extended ? 30 : (detailed ? 35 : 45);
+                const iconAnchorY = extended ? 9 : (detailed ? 12 : 16);
                 const label = L.divIcon({
                     className: 'grid-label',
-                    html: `<div style="font-size: ${detailed ? '14' : '22'}px; font-weight: bold; color: white; text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.9), 1px 1px 2px rgba(0,0,0,0.8), -1px -1px 2px rgba(0,0,0,0.8); white-space: nowrap;">${displayText}</div>`,
-                    iconSize: [detailed ? 70 : 90, detailed ? 24 : 32],
-                    iconAnchor: [detailed ? 35 : 45, detailed ? 12 : 16]
+                    html: `<div style="font-size: ${fontSize}px; font-weight: bold; color: white; text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.9), 1px 1px 2px rgba(0,0,0,0.8), -1px -1px 2px rgba(0,0,0,0.8); white-space: nowrap;">${displayText}</div>`,
+                    iconSize: [iconWidth, iconHeight],
+                    iconAnchor: [iconAnchorX, iconAnchorY]
                 });
 
                 const labelMarker = L.marker([coords.center.lat, coords.center.lon], {
@@ -569,16 +578,17 @@
             const northEdge = Math.ceil(north + 90) - 90;
 
             // Safety: limit total grid squares rendered
+            const maxSquares = showExtended ? 2000 : 500;
             const lonSteps = Math.ceil((eastEdge - westEdge) / 2);
             const latSteps = Math.ceil(northEdge - southEdge);
-            if (lonSteps * latSteps > 500) return;
+            if (lonSteps * latSteps > maxSquares) return;
 
             for (let lon = westEdge; lon < eastEdge; lon += 2) {
                 for (let lat = southEdge; lat < northEdge; lat += 1) {
                     // Normalize longitude for grid encoding (handles antimeridian)
                     const normLon = ((lon % 360) + 540) % 360 - 180;
                     const grid = calculateGridSquare(lat + 0.5, normLon + 1);
-                    drawGridSquare(grid.substring(0, 4), false, bounds);
+                    drawGridSquare(grid.substring(0, 4), 4, bounds);
 
                     if (showSubsquares) {
                         // Only iterate over subsquares that are actually visible
@@ -597,7 +607,28 @@
                                 const centerLon = gridWest + (i * subWidth) + (subWidth / 2);
                                 const centerLat = gridSouth + (j * subHeight) + (subHeight / 2);
                                 const subGrid = calculateGridSquare(centerLat, centerLon);
-                                drawGridSquare(subGrid, true, bounds);
+                                drawGridSquare(subGrid, 6, bounds);
+
+                                if (showExtended) {
+                                    const extWidth = 30 / 3600;
+                                    const extHeight = 15 / 3600;
+                                    const extWest = gridWest + (i * subWidth);
+                                    const extSouth = gridSouth + (j * subHeight);
+
+                                    const extStartI = Math.max(0, Math.floor((bounds.getWest() - extWest) / extWidth));
+                                    const extEndI = Math.min(10, Math.ceil((bounds.getEast() - extWest) / extWidth));
+                                    const extStartJ = Math.max(0, Math.floor((bounds.getSouth() - extSouth) / extHeight));
+                                    const extEndJ = Math.min(10, Math.ceil((bounds.getNorth() - extSouth) / extHeight));
+
+                                    for (let ei = extStartI; ei < extEndI; ei++) {
+                                        for (let ej = extStartJ; ej < extEndJ; ej++) {
+                                            const extCenterLon = extWest + (ei * extWidth) + (extWidth / 2);
+                                            const extCenterLat = extSouth + (ej * extHeight) + (extHeight / 2);
+                                            const extGrid = calculateGridSquare(extCenterLat, extCenterLon, true);
+                                            drawGridSquare(extGrid, 8, bounds);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
