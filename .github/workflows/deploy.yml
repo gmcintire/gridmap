@@ -1,0 +1,20 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to skippy.w5isp.com
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: skippy.w5isp.com
+          username: graham
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "index.html,leaflet.js,leaflet.css,leaflet.js.map"
+          target: /home/graham/apps/gridmap.org
