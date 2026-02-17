@@ -8,6 +8,14 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23228B22'/%3E%3Cpath d='M0 16h32M16 0v32' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M0 8h32M0 24h32M8 0v32M24 0v32' stroke='%23fff' stroke-width='0.5' opacity='0.4'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="leaflet.css" />
     <style>
+        :root {
+            --grid-color: #E63946;
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-overlay: rgba(0, 0, 0, 0.6);
+            --bg-toast: rgba(0, 0, 0, 0.8);
+        }
+
         body,
         html {
             margin: 0;
@@ -94,14 +102,14 @@
             padding: 6px 10px;
             border: none;
             border-radius: 6px;
-            background: #2563eb;
+            background: var(--primary-color);
             color: white;
             cursor: pointer;
             font-size: 13px;
         }
 
         #grid-search button:hover {
-            background: #1d4ed8;
+            background: var(--primary-hover);
         }
 
         #precision-display {
@@ -109,7 +117,7 @@
             bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.6);
+            background: var(--bg-overlay);
             color: white;
             padding: 4px 12px;
             border-radius: 12px;
@@ -123,7 +131,7 @@
             top: 60px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
+            background: var(--bg-toast);
             color: white;
             padding: 8px 16px;
             border-radius: 8px;
@@ -160,19 +168,32 @@
         #callsign a:hover {
             color: rgba(0, 0, 0, 0.8);
         }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
     </style>
 </head>
 
 <body>
     <div id="top-bar">
-        <div id="grid-display">
+        <div id="grid-display" role="button" tabindex="0" aria-label="Click to copy current grid square">
             <span id="grid-text">Current Grid: --</span>
             <span class="copy-hint">click to copy</span>
         </div>
         <div class="bar-divider"></div>
         <div id="grid-search">
-            <input type="text" id="search-input" placeholder="FN31pr" maxlength="8" />
-            <button onclick="searchGrid()">Go</button>
+            <label for="search-input" class="visually-hidden">Enter grid square</label>
+            <input type="text" id="search-input" placeholder="FN31pr" maxlength="8" aria-label="Enter grid square" />
+            <button onclick="searchGrid()" aria-label="Go to grid square">Go</button>
         </div>
     </div>
     <div id="precision-display"></div>
@@ -395,17 +416,45 @@
         }
 
         // Click-to-copy
-        document.getElementById('grid-display').addEventListener('click', function () {
+        function copyGridToClipboard() {
             const text = document.getElementById('grid-text').textContent;
             const grid = text.replace('Current Grid: ', '');
             if (grid && grid !== '--') {
-                navigator.clipboard.writeText(grid).then(() => {
-                    showToast('Copied: ' + grid);
-                }).catch(() => {
-                    showToast('Copy failed');
-                });
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(grid).then(() => {
+                        showToast('Copied: ' + grid);
+                    }).catch(() => {
+                        fallbackCopy(grid);
+                    });
+                } else {
+                    fallbackCopy(grid);
+                }
+            }
+        }
+
+        document.getElementById('grid-display').addEventListener('click', copyGridToClipboard);
+        document.getElementById('grid-display').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                copyGridToClipboard();
             }
         });
+
+        function fallbackCopy(text) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast('Copied: ' + text);
+            } catch (e) {
+                showToast('Copy failed');
+            }
+            document.body.removeChild(textArea);
+        }
 
         // Search on Enter key
         document.getElementById('search-input').addEventListener('keydown', function (e) {
@@ -414,7 +463,12 @@
 
         // Initialize map
         function initMap() {
-            map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+            try {
+                map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+            } catch (e) {
+                showToast('Failed to initialize map: ' + e.message, 5000);
+                return;
+            }
 
             // Tile layers
             const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -482,8 +536,6 @@
 
             const gridSquare = calculateGridSquare(lat, lon, true);
             document.getElementById('grid-text').textContent = `Current Grid: ${gridSquare}`;
-
-            updateGridOverlay();
         }
 
         function handleLocationError(error) {
@@ -495,11 +547,16 @@
             const bounds = map.getBounds();
             const zoom = map.getZoom();
             const showSubsquares = zoom >= 11;
+            const showExtended = zoom >= 14;
 
-            // Update precision indicator
-            const precisionText = showSubsquares
-                ? "Showing 6-char subsquares (5' x 2.5')"
-                : "Showing 4-char fields (2\u00B0 x 1\u00B0)";
+            let precisionText;
+            if (showExtended) {
+                precisionText = "Showing 8-char extended (30\" x 15\")";
+            } else if (showSubsquares) {
+                precisionText = "Showing 6-char subsquares (5' x 2.5')";
+            } else {
+                precisionText = "Showing 4-char fields (2\u00B0 x 1\u00B0)";
+            }
             document.getElementById('precision-display').textContent = precisionText;
 
             const south = Math.max(bounds.getSouth(), -90);
