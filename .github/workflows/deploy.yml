@@ -18,7 +18,7 @@ jobs:
       - name: Add host key
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H skippy.w5isp.com >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H skippy.w5isp.com >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy to skippy.w5isp.com
         run: |
