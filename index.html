@@ -4,14 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Location Map with Maidenhead Grid</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>GridMap - Maidenhead Grid Square Map</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23228B22'/%3E%3Cpath d='M0 16h32M16 0v32' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M0 8h32M0 24h32M8 0v32M24 0v32' stroke='%23fff' stroke-width='0.5' opacity='0.4'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="leaflet.css" />
     <style>
         body,
         html {
             margin: 0;
             padding: 0;
             height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
         #map {
@@ -19,28 +21,170 @@
             width: 100vw;
         }
 
-        #grid-display {
+        #top-bar {
             position: fixed;
             top: 10px;
             left: 50%;
             transform: translateX(-50%);
             background: white;
-            padding: 10px;
-            border-radius: 5px;
+            padding: 6px 8px 6px 16px;
+            border-radius: 8px;
             z-index: 1000;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            white-space: nowrap;
+        }
+
+        #grid-display {
+            cursor: pointer;
+            user-select: none;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.15s;
+        }
+
+        #grid-display:hover {
+            background: #f0f0f0;
+        }
+
+        #grid-display .copy-hint {
+            font-size: 11px;
+            color: #999;
+            font-weight: normal;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .bar-divider {
+            width: 1px;
+            height: 24px;
+            background: #ddd;
+        }
+
+        #grid-search {
+            display: flex;
+            gap: 4px;
+        }
+
+        #grid-search input {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            width: 100px;
+            text-transform: uppercase;
+            outline: none;
+            background: #f8f8f8;
+        }
+
+        #grid-search input:focus {
+            border-color: #2563eb;
+            background: white;
+        }
+
+        #grid-search button {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 6px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        #grid-search button:hover {
+            background: #1d4ed8;
+        }
+
+        #precision-display {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            z-index: 1000;
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        #toast {
+            position: fixed;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            z-index: 1001;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        #toast.visible {
+            opacity: 1;
+        }
+
+        .grid-label {
+            background: none !important;
+            border: none !important;
         }
     </style>
 </head>
 
 <body>
-    <div id="grid-display">Current Grid: --</div>
+    <div id="top-bar">
+        <div id="grid-display">
+            <span id="grid-text">Current Grid: --</span>
+            <span class="copy-hint">click to copy</span>
+        </div>
+        <div class="bar-divider"></div>
+        <div id="grid-search">
+            <input type="text" id="search-input" placeholder="FN31pr" maxlength="8" />
+            <button onclick="searchGrid()">Go</button>
+        </div>
+    </div>
+    <div id="precision-display"></div>
+    <div id="toast"></div>
     <div id="map"></div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="leaflet.js"></script>
     <script>
-        let map, marker, gridLayer;
+        let map, marker;
+        let firstFix = false;
+        let toastTimeout;
         const gridSquares = L.layerGroup();
+
+        // Toast notification (replaces alert())
+        function showToast(message, duration = 2000) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('visible');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => toast.classList.remove('visible'), duration);
+        }
+
+        // Debounce utility
+        function debounce(fn, delay) {
+            let timer;
+            return function (...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
 
         class GridSquare {
             constructor(lat, lon) {
@@ -55,78 +199,74 @@
                 return lon;
             }
 
-            // Convert lat/lon to grid square reference
             encode(precision = 4) {
-                // Adjust coordinates to positive values
                 const adjLon = this.lon + 180;
                 const adjLat = this.lat + 90;
 
                 let gridRef = '';
 
                 // Field (first pair, base 18 A-R)
-                gridRef += String.fromCharCode(65 + Math.floor(adjLon / 20)); // Longitude field
-                gridRef += String.fromCharCode(65 + Math.floor(adjLat / 10)); // Latitude field
+                gridRef += String.fromCharCode(65 + Math.floor(adjLon / 20));
+                gridRef += String.fromCharCode(65 + Math.floor(adjLat / 10));
 
                 // Square (second pair, base 10 0-9)
-                gridRef += Math.floor((adjLon % 20) / 2);  // Longitude square
-                gridRef += Math.floor(adjLat % 10);        // Latitude square
+                gridRef += Math.floor((adjLon % 20) / 2);
+                gridRef += Math.floor(adjLat % 10);
 
                 if (precision > 4) {
                     // Subsquare (third pair, base 24 a-x)
-                    const lonMin = (adjLon % 2) * 60;  // Minutes within 2° square
-                    const latMin = (adjLat % 1) * 60;  // Minutes within 1° square
-                    gridRef += String.fromCharCode(97 + Math.floor(lonMin / 5));  // 5' longitude
-                    gridRef += String.fromCharCode(97 + Math.floor(latMin / 2.5)); // 2.5' latitude
+                    const lonMin = (adjLon % 2) * 60;
+                    const latMin = (adjLat % 1) * 60;
+                    gridRef += String.fromCharCode(97 + Math.floor(lonMin / 5));
+                    gridRef += String.fromCharCode(97 + Math.floor(latMin / 2.5));
                 }
 
                 if (precision > 6) {
-                    // Extended square (fourth pair and beyond)
-                    const lonSec = (adjLon % (5 / 60)) * 3600;  // Seconds within subsquare
-                    const latSec = (adjLat % (2.5 / 60)) * 3600;  // Seconds within subsquare
-                    gridRef += Math.floor(lonSec / 30);  // 30" longitude
-                    gridRef += Math.floor(latSec / 15);  // 15" latitude
+                    // Extended square (fourth pair)
+                    const lonSec = (adjLon % (5 / 60)) * 3600;
+                    const latSec = (adjLat % (2.5 / 60)) * 3600;
+                    gridRef += Math.floor(lonSec / 30);
+                    gridRef += Math.floor(latSec / 15);
                 }
 
                 return gridRef;
             }
 
-            // Convert grid reference to lat/lon boundaries
             static decode(grid) {
-                // Field (first pair, base 18 A-R)
-                const field1 = grid.charCodeAt(0) - 65;  // A=0, B=1, etc.
+                grid = grid.substring(0, 2).toUpperCase() + grid.substring(2, 4) +
+                    (grid.length > 4 ? grid.substring(4, 6).toLowerCase() : '') +
+                    (grid.length > 6 ? grid.substring(6, 8) : '');
+
+                const field1 = grid.charCodeAt(0) - 65;
                 const field2 = grid.charCodeAt(1) - 65;
 
-                // Square (second pair, base 10 0-9)
                 const square1 = parseInt(grid[2]);
                 const square2 = parseInt(grid[3]);
 
-                // Calculate base coordinates
-                let westLon = (field1 * 20) - 180 + (square1 * 2);  // Each grid is 2° wide
-                let southLat = (field2 * 10) - 90 + square2;        // Each grid is 1° tall
+                let westLon = (field1 * 20) - 180 + (square1 * 2);
+                let southLat = (field2 * 10) - 90 + square2;
 
-                let width = 2;   // Default width is 2°
-                let height = 1;  // Default height is 1°
+                let width = 2;
+                let height = 1;
 
-                // Subsquare (third pair, base 24 a-x)
                 if (grid.length >= 6) {
-                    const subsq1 = grid.charCodeAt(4) - 97;  // a=0, b=1, etc.
+                    const subsq1 = grid.charCodeAt(4) - 97;
                     const subsq2 = grid.charCodeAt(5) - 97;
 
-                    westLon += subsq1 * 5 / 60;     // Each subsquare is 5' wide
-                    southLat += subsq2 * 2.5 / 60;  // Each subsquare is 2.5' tall
-                    width = 5 / 60;    // 5' in degrees
-                    height = 2.5 / 60; // 2.5' in degrees
+                    westLon += subsq1 * 5 / 60;
+                    southLat += subsq2 * 2.5 / 60;
+                    width = 5 / 60;
+                    height = 2.5 / 60;
                 }
 
-                // Extended square (fourth pair, base 10 0-9)
                 if (grid.length >= 8) {
                     const ext1 = parseInt(grid[6]);
                     const ext2 = parseInt(grid[7]);
 
-                    westLon += ext1 * 30 / 3600;    // Each extended square is 30" wide
-                    southLat += ext2 * 15 / 3600;   // Each extended square is 15" tall
-                    width = 30 / 3600;    // 30" in degrees
-                    height = 15 / 3600;   // 15" in degrees
+                    westLon += ext1 * 30 / 3600;
+                    southLat += ext2 * 15 / 3600;
+                    width = 30 / 3600;
+                    height = 15 / 3600;
                 }
 
                 return {
@@ -140,9 +280,25 @@
                     }
                 };
             }
+
+            static isValid(grid) {
+                if (!grid || grid.length < 4 || grid.length % 2 !== 0 || grid.length > 8) return false;
+                const c0 = grid.toUpperCase().charCodeAt(0);
+                const c1 = grid.toUpperCase().charCodeAt(1);
+                if (c0 < 65 || c0 > 82 || c1 < 65 || c1 > 82) return false;
+                if (isNaN(parseInt(grid[2])) || isNaN(parseInt(grid[3]))) return false;
+                if (grid.length >= 6) {
+                    const c4 = grid.toLowerCase().charCodeAt(4);
+                    const c5 = grid.toLowerCase().charCodeAt(5);
+                    if (c4 < 97 || c4 > 120 || c5 < 97 || c5 > 120) return false;
+                }
+                if (grid.length >= 8) {
+                    if (isNaN(parseInt(grid[6])) || isNaN(parseInt(grid[7]))) return false;
+                }
+                return true;
+            }
         }
 
-        // Replace the existing functions with the new class
         function calculateGridSquare(lat, lon, extended = false) {
             const grid = new GridSquare(lat, lon);
             return grid.encode(extended ? 8 : 6);
@@ -152,54 +308,122 @@
             return GridSquare.decode(grid);
         }
 
-        function drawGridSquare(grid, detailed = false, bounds) {
-            if (grid.length < 4) return; // Need at least field and square
+        function drawGridSquare(grid, detailed, bounds) {
+            if (grid.length < 4) return;
 
             const coords = gridToCoordinates(grid);
 
-            // Only draw if the square intersects with the visible bounds
-            if (coords.west <= bounds.getEast() && coords.east >= bounds.getWest() &&
-                coords.south <= bounds.getNorth() && coords.north >= bounds.getSouth()) {
+            if (coords.west > bounds.getEast() || coords.east < bounds.getWest() ||
+                coords.south > bounds.getNorth() || coords.north < bounds.getSouth()) {
+                return;
+            }
 
-                // Draw rectangle with black border and no fill
-                const rectangle = L.rectangle([
-                    [coords.south, coords.west],  // [lat, lon] for southwest corner
-                    [coords.north, coords.east]   // [lat, lon] for northeast corner
-                ], {
-                    color: "#000000",
-                    weight: detailed ? 0.5 : 1,
-                    fillOpacity: 0,
-                    interactive: false
-                });
+            const rectangle = L.rectangle([
+                [coords.south, coords.west],
+                [coords.north, coords.east]
+            ], {
+                color: "#E63946",
+                weight: detailed ? 1 : 2,
+                opacity: 0.8,
+                fillOpacity: 0,
+                interactive: false
+            });
 
-                // Add centered label
+            gridSquares.addLayer(rectangle);
+
+            // Only add labels if the square is large enough in pixels
+            const sw = map.latLngToContainerPoint([coords.south, coords.west]);
+            const ne = map.latLngToContainerPoint([coords.north, coords.east]);
+            const pixelWidth = Math.abs(ne.x - sw.x);
+
+            const minLabelWidth = detailed ? 50 : 60;
+            if (pixelWidth > minLabelWidth) {
+                const displayText = grid.substring(0, detailed ? 6 : 4);
                 const label = L.divIcon({
                     className: 'grid-label',
-                    html: `<div style="padding: 4px 8px; font-size: ${detailed ? '16' : '24'}px; font-weight: bold; color: black; text-shadow: 1px 1px 2px white;">${grid.substring(0, detailed ? 6 : 4)}</div>`,
-                    iconSize: [detailed ? 80 : 100, detailed ? 30 : 40],
-                    iconAnchor: [detailed ? 40 : 50, detailed ? 15 : 20]
+                    html: `<div style="font-size: ${detailed ? '14' : '22'}px; font-weight: bold; color: white; text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.9), 1px 1px 2px rgba(0,0,0,0.8), -1px -1px 2px rgba(0,0,0,0.8); white-space: nowrap;">${displayText}</div>`,
+                    iconSize: [detailed ? 70 : 90, detailed ? 24 : 32],
+                    iconAnchor: [detailed ? 35 : 45, detailed ? 12 : 16]
                 });
 
-                const marker = L.marker([coords.center.lat, coords.center.lon], {
+                const labelMarker = L.marker([coords.center.lat, coords.center.lon], {
                     icon: label,
                     interactive: false
                 });
 
-                gridSquares.addLayer(rectangle);
-                gridSquares.addLayer(marker);
+                gridSquares.addLayer(labelMarker);
             }
         }
 
+        // Grid search
+        function searchGrid() {
+            const input = document.getElementById('search-input').value.trim();
+            if (!input) return;
+
+            if (!GridSquare.isValid(input)) {
+                showToast('Invalid grid square format', 3000);
+                return;
+            }
+
+            const coords = GridSquare.decode(input);
+            const zoomLevel = input.length >= 8 ? 16 : input.length >= 6 ? 13 : 10;
+            map.flyTo([coords.center.lat, coords.center.lon], zoomLevel);
+
+            const normalized = input.substring(0, 2).toUpperCase() + input.substring(2, 4) +
+                (input.length > 4 ? input.substring(4, 6).toLowerCase() : '') +
+                (input.length > 6 ? input.substring(6, 8) : '');
+            showToast(`Flying to ${normalized}`);
+        }
+
+        // Click-to-copy
+        document.getElementById('grid-display').addEventListener('click', function () {
+            const text = document.getElementById('grid-text').textContent;
+            const grid = text.replace('Current Grid: ', '');
+            if (grid && grid !== '--') {
+                navigator.clipboard.writeText(grid).then(() => {
+                    showToast('Copied: ' + grid);
+                }).catch(() => {
+                    showToast('Copy failed');
+                });
+            }
+        });
+
+        // Search on Enter key
+        document.getElementById('search-input').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') searchGrid();
+        });
+
         // Initialize map
         function initMap() {
-            map = L.map('map').setView([0, 0], 2);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
+            map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+
+            // Tile layers
+            const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors',
+                maxZoom: 19
+            });
+
+            const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '&copy; Esri',
+                maxZoom: 19
+            });
+
+            const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+                maxZoom: 19
+            });
+
+            osmLayer.addTo(map);
+
+            L.control.layers({
+                'Street': osmLayer,
+                'Satellite': satelliteLayer,
+                'Dark': darkLayer
             }).addTo(map);
 
             gridSquares.addTo(map);
 
-            // Start watching location
+            // Geolocation
             if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition(updateLocation, handleLocationError, {
                     enableHighAccuracy: true,
@@ -207,41 +431,44 @@
                     timeout: 27000
                 });
             } else {
-                alert("Geolocation is not supported by this browser.");
+                showToast("Geolocation not supported by this browser", 5000);
             }
 
-            // Update grid overlay when map moves
-            map.on('moveend', function () {
-                updateGridOverlay();
-            });
+            // Update grid overlay when map moves (debounced)
+            map.on('moveend', debounce(updateGridOverlay, 150));
+
+            updateGridOverlay();
         }
 
         function updateLocation(position) {
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
 
-            // Update marker
             if (!marker) {
-                marker = L.marker([lat, lon]).addTo(map);
+                marker = L.circleMarker([lat, lon], {
+                    radius: 8,
+                    fillColor: '#4285F4',
+                    fillOpacity: 1,
+                    color: '#fff',
+                    weight: 3
+                }).addTo(map);
             } else {
                 marker.setLatLng([lat, lon]);
             }
 
-            // Center map on first location fix
-            if (map.getZoom() === 2) {
+            if (!firstFix) {
+                firstFix = true;
                 map.setView([lat, lon], 10);
             }
 
-            // Update grid display
             const gridSquare = calculateGridSquare(lat, lon, true);
-            document.getElementById('grid-display').textContent = `Current Grid: ${gridSquare}`;
+            document.getElementById('grid-text').textContent = `Current Grid: ${gridSquare}`;
 
-            // Update grid overlay
             updateGridOverlay();
         }
 
         function handleLocationError(error) {
-            alert(`Error getting location: ${error.message}`);
+            showToast(`Location: ${error.message}`, 4000);
         }
 
         function updateGridOverlay() {
@@ -250,29 +477,49 @@
             const zoom = map.getZoom();
             const showSubsquares = zoom >= 11;
 
-            // Calculate the visible grid squares
+            // Update precision indicator
+            const precisionText = showSubsquares
+                ? "Showing 6-char subsquares (5' x 2.5')"
+                : "Showing 4-char fields (2\u00B0 x 1\u00B0)";
+            document.getElementById('precision-display').textContent = precisionText;
+
+            const south = Math.max(bounds.getSouth(), -90);
+            const north = Math.min(bounds.getNorth(), 90);
+
+            // Compute iteration edges in degrees, snapped to 2-degree lon / 1-degree lat grid
             const westEdge = Math.floor((bounds.getWest() + 180) / 2) * 2 - 180;
             const eastEdge = Math.ceil((bounds.getEast() + 180) / 2) * 2 - 180;
-            const southEdge = Math.floor((bounds.getSouth() + 90)) - 90;
-            const northEdge = Math.ceil((bounds.getNorth() + 90)) - 90;
+            const southEdge = Math.floor(south + 90) - 90;
+            const northEdge = Math.ceil(north + 90) - 90;
 
-            // Draw main grid squares first
+            // Safety: limit total grid squares rendered
+            const lonSteps = Math.ceil((eastEdge - westEdge) / 2);
+            const latSteps = Math.ceil(northEdge - southEdge);
+            if (lonSteps * latSteps > 500) return;
+
             for (let lon = westEdge; lon < eastEdge; lon += 2) {
                 for (let lat = southEdge; lat < northEdge; lat += 1) {
-                    // Draw main grid square
-                    const grid = calculateGridSquare(lat + 0.5, lon + 1);
+                    // Normalize longitude for grid encoding (handles antimeridian)
+                    const normLon = ((lon % 360) + 540) % 360 - 180;
+                    const grid = calculateGridSquare(lat + 0.5, normLon + 1);
                     drawGridSquare(grid.substring(0, 4), false, bounds);
 
-                    // Draw subsquares if zoomed in
                     if (showSubsquares) {
-                        // Calculate subsquares within this main grid square
-                        for (let i = 0; i < 24; i++) {
-                            for (let j = 0; j < 24; j++) {
-                                // Calculate the center of each subsquare
-                                const subLon = lon + (i * 5 / 60);  // Convert 5' to degrees
-                                const subLat = lat + (j * 2.5 / 60);  // Convert 2.5' to degrees
-                                const centerLon = subLon + (2.5 / 60);  // Add half of 5'
-                                const centerLat = subLat + (1.25 / 60);  // Add half of 2.5'
+                        // Only iterate over subsquares that are actually visible
+                        const subWidth = 5 / 60;
+                        const subHeight = 2.5 / 60;
+                        const gridWest = normLon;
+                        const gridSouth = lat;
+
+                        const startI = Math.max(0, Math.floor((bounds.getWest() - lon) / subWidth));
+                        const endI = Math.min(24, Math.ceil((bounds.getEast() - lon) / subWidth));
+                        const startJ = Math.max(0, Math.floor((bounds.getSouth() - lat) / subHeight));
+                        const endJ = Math.min(24, Math.ceil((bounds.getNorth() - lat) / subHeight));
+
+                        for (let i = startI; i < endI; i++) {
+                            for (let j = startJ; j < endJ; j++) {
+                                const centerLon = gridWest + (i * subWidth) + (subWidth / 2);
+                                const centerLat = gridSouth + (j * subHeight) + (subHeight / 2);
                                 const subGrid = calculateGridSquare(centerLat, centerLon);
                                 drawGridSquare(subGrid, true, bounds);
                             }
@@ -282,7 +529,6 @@
             }
         }
 
-        // Initialize the map when the page loads
         window.onload = initMap;
     </script>
 </body>
