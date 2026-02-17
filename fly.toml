@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for gridmap on 2025-01-20T09:40:17-06:00
+# fly.toml app configuration file generated for gridmap on 2026-02-17T08:16:39-06:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -9,14 +9,15 @@ primary_region = 'dfw'
 [build]
 
 [http_service]
-internal_port = 8080
-force_https = true
-auto_stop_machines = "off"
-auto_start_machines = true
-min_machines_running = 0
-processes = ['app']
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
-memory = '1gb'
-cpu_kind = 'shared'
-cpus = 1
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
