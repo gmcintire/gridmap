@@ -10,21 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Add host key
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H skippy.w5isp.com >> ~/.ssh/known_hosts 2>/dev/null || true
-
       - name: Deploy to skippy.w5isp.com
-        run: |
-          rsync -avz --delete \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='.gitignore' \
-            --exclude='CLAUDE.md' \
-            ./ graham@skippy.w5isp.com:/home/graham/apps/gridmap.org/
+        uses: burnett01/rsync-deployments@v8
+        with:
+          switches: -avz --delete --exclude='.git' --exclude='.github' --exclude='.gitignore' --exclude='CLAUDE.md'
+          path: ./
+          remote_path: /home/graham/apps/gridmap.org/
+          remote_host: skippy.w5isp.com
+          remote_user: graham
+          remote_key: ${{ secrets.DEPLOY_SSH_KEY }}
