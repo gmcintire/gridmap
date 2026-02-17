@@ -10,12 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to skippy.w5isp.com
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Deploy to skippy
         uses: burnett01/rsync-deployments@v8
         with:
           switches: -avz --delete --exclude='.git' --exclude='.github' --exclude='.gitignore' --exclude='CLAUDE.md'
           path: ./
           remote_path: /home/graham/apps/gridmap.org/
-          remote_host: skippy.w5isp.com
+          remote_host: skippy
           remote_user: graham
           remote_key: ${{ secrets.DEPLOY_SSH_KEY }}
