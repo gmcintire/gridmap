@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GridMap - Maidenhead Grid Square Map</title>
+    <title>GridMap by W5ISP - Maidenhead Grid Square Map</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23228B22'/%3E%3Cpath d='M0 16h32M16 0v32' stroke='%23fff' stroke-width='2'/%3E%3Cpath d='M0 8h32M0 24h32M8 0v32M24 0v32' stroke='%23fff' stroke-width='0.5' opacity='0.4'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="leaflet.css" />
     <style>
@@ -142,6 +142,24 @@
             background: none !important;
             border: none !important;
         }
+
+        #callsign {
+            position: fixed;
+            bottom: 8px;
+            left: 10px;
+            z-index: 1000;
+            font-size: 12px;
+        }
+
+        #callsign a {
+            color: rgba(0, 0, 0, 0.5);
+            text-decoration: none;
+            text-shadow: 0 0 3px rgba(255, 255, 255, 0.8);
+        }
+
+        #callsign a:hover {
+            color: rgba(0, 0, 0, 0.8);
+        }
     </style>
 </head>
 
@@ -159,6 +177,7 @@
     </div>
     <div id="precision-display"></div>
     <div id="toast"></div>
+    <div id="callsign"><a href="https://w5isp.com" target="_blank">by W5ISP</a></div>
     <div id="map"></div>
 
     <script src="leaflet.js"></script>
